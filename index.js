@@ -6,12 +6,15 @@ require('dotenv').config();
 const app = express();
 const port = process.env.PORT || 5000;
 
+
 // middleware
 app.use(cors({
   origin: [
       "http://localhost:5173",
       "http://localhost:5174",
       "http://localhost:5175",
+      "https://chatwitharu.netlify.app",
+      
       
     ],
     credentials: true,
@@ -34,15 +37,11 @@ async function run() {
   try {
     // ✅ connect once
     await client.connect();
-    console.log("✅ Connected to MongoDB");
+    // console.log("✅ Connected to MongoDB");
 
     const db = client.db("chatDB");
     const messageCollection = db.collection("messages");
 const userCollection = db.collection("users");
-
-
-
-
 
 
 
@@ -98,65 +97,117 @@ app.get("/users", async (req, res) => {
   res.send(users);
 });
 
-    // ============================
-    // 📩 POST: Send Message
-    // ============================
-    app.post('/messages', async (req, res) => {
-      try {
-        const newMessage = req.body;
 
-        // validation
-        if (!newMessage.text) {
-          return res.status(400).json({
-            success: false,
-            message: "Message text is required"
-          });
-        }
+// ============================
+// 🕒 UPDATE LAST SEEN
+// ============================
+app.patch("/users/last-seen", async (req, res) => {
+  try {
+    const { email } = req.body;
 
-        // add timestamp
-        const messageData = {
-          ...newMessage,
-          createdAt: new Date()
-        };
+    const result = await userCollection.updateOne(
+      { email },
+      {
+        $set: {
+          lastSeen: new Date(),
+        },
+      },
+      { upsert: true }
+    );
 
-        const result = await messageCollection.insertOne(messageData);
-
-        res.status(201).json({
-          success: true,
-          insertedId: result.insertedId,
-          data: messageData
-        });
-
-      } catch (error) {
-        console.error("POST /messages error:", error);
-        res.status(500).json({
-          success: false,
-          message: "Internal Server Error"
-        });
-      }
+    res.send({
+      success: true,
+      result,
     });
+  } catch (error) {
+    console.log("last seen error:", error);
 
-    // ============================
-    // 📥 GET: All Messages
-    // ============================
-    app.get('/messages', async (req, res) => {
-      try {
-        const messages = await messageCollection
-          .find()
-          .sort({ createdAt: 1 }) // oldest first
-          .limit(50)
-          .toArray();
-
-        res.json(messages);
-
-      } catch (error) {
-        console.error("GET /messages error:", error);
-        res.status(500).json({
-          success: false,
-          message: "Internal Server Error"
-        });
-      }
+    res.status(500).send({
+      success: false,
+      message: "Failed to update last seen",
     });
+  }
+});
+
+
+// ✅ Get single user
+// ============================
+// 👤 Get single user (FIXED - IMPORTANT)
+// ============================
+app.get("/users/:email", async (req, res) => {
+  try {
+    const email = req.params.email;
+
+    const user = await userCollection.findOne({ email });
+
+    res.send(user);
+  } catch (err) {
+    res.status(500).send({ message: "User not found" });
+  }
+});
+
+
+ // ============================
+// 📩 POST: Send Message
+// ============================
+app.post("/messages", async (req, res) => {
+  try {
+    const { text, senderName, senderEmail } = req.body;
+
+    // ✅ validation
+    if (!text) {
+      return res.status(400).json({
+        success: false,
+        message: "Message text is required",
+      });
+    }
+
+    const messageData = {
+      text,
+      senderName,
+      senderEmail,
+      createdAt: new Date(),
+    };
+
+    const result = await messageCollection.insertOne(messageData);
+
+   res.status(201).json({
+  success: true,
+  insertedId: result.insertedId,
+  data: {
+    _id: result.insertedId,
+    ...messageData,
+  },
+});
+
+  } catch (error) {
+    console.error("POST /messages error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+    });
+  }
+});
+
+app.get("/messages", async (req, res) => {
+  try {
+    const messages = await messageCollection
+      .find()
+      .sort({ createdAt: 1 })
+      .toArray();
+
+    res.json(messages);
+
+  } catch (error) {
+    console.error("GET /messages error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+    });
+  }
+});
 
     // ============================
     // 🏠 Root Route
